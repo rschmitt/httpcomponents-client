@@ -41,7 +41,6 @@ import org.apache.hc.core5.reactive.ReactiveEntityProducer;
 import org.apache.hc.core5.reactive.ReactiveResponseConsumer;
 import org.hamcrest.CoreMatchers;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.reactivestreams.Publisher;
 
@@ -86,7 +85,6 @@ public abstract class AbstractHttpReactiveFundamentalsTest<T extends CloseableHt
     }
 
     @Test(timeout = 2000)
-    @Ignore
     public void testSequentialHeadRequests() throws Exception {
         final HttpHost target = start();
         for (int i = 0; i < 3; i++) {
