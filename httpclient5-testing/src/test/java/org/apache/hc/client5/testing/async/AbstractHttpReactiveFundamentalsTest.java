@@ -26,9 +26,21 @@
  */
 package org.apache.hc.client5.testing.async;
 
-import io.reactivex.Flowable;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Random;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.apache.hc.client5.http.protocol.HttpClientContext;
+import org.apache.hc.core5.concurrent.BasicFuture;
 import org.apache.hc.core5.concurrent.FutureCallback;
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpHost;
@@ -39,26 +51,15 @@ import org.apache.hc.core5.http.nio.AsyncRequestProducer;
 import org.apache.hc.core5.http.nio.support.AsyncRequestBuilder;
 import org.apache.hc.core5.reactive.ReactiveEntityProducer;
 import org.apache.hc.core5.reactive.ReactiveResponseConsumer;
+import org.apache.hc.core5.util.ByteArrayBuffer;
 import org.hamcrest.CoreMatchers;
 import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
 
-import java.io.ByteArrayOutputStream;
-import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
-import java.nio.channels.WritableByteChannel;
-import java.nio.charset.StandardCharsets;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
-import java.util.Random;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
+import io.reactivex.Flowable;
 
 public abstract class AbstractHttpReactiveFundamentalsTest<T extends CloseableHttpAsyncClient> extends AbstractIntegrationTestBase<T> {
 
@@ -245,18 +246,47 @@ public abstract class AbstractHttpReactiveFundamentalsTest<T extends CloseableHt
     }
 
     static byte[] publisherToByteArray(final Publisher<ByteBuffer> publisher) throws Exception {
-        final ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (WritableByteChannel channel = Channels.newChannel(baos)) {
-            final List<ByteBuffer> bufs = Flowable.fromPublisher(publisher)
-                .toList()
-                .blockingGet();
-            if (bufs.isEmpty()) {
-                return null;
+        final BasicFuture<byte[]> future = new BasicFuture<>(null);
+        publisher.subscribe(new Subscriber<ByteBuffer>() {
+
+            private ByteArrayBuffer buf;
+
+            @Override
+            public synchronized void onSubscribe(final Subscription subscription) {
+                subscription.request(Long.MAX_VALUE);
             }
-            for (final ByteBuffer buf : bufs) {
-                channel.write(buf);
+
+            @Override
+            public synchronized void onNext(final ByteBuffer src) {
+                if (buf == null) {
+                    buf = new ByteArrayBuffer(1024);
+                }
+                if (src.hasArray()) {
+                    buf.append(src.array(), src.arrayOffset() + src.position(), src.remaining());
+                } else {
+                    while (src.hasRemaining()) {
+                        buf.append(src.get());
+                    }
+                }
             }
-        }
-        return baos.toByteArray();
+
+            @Override
+            public synchronized void onError(final Throwable t) {
+                if (t instanceof Exception) {
+                    future.failed((Exception) t);
+                } else {
+                    future.failed(new RuntimeException(t));
+                }
+                buf = null;
+            }
+
+            @Override
+            public synchronized void onComplete() {
+                future.completed(buf != null ? buf.toByteArray() : null);
+                buf = null;
+            }
+
+        });
+        return future.get();
     }
 }
