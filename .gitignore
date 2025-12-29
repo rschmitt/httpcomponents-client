@@ -13,3 +13,4 @@ target
 /test-CA/newcerts/
 /test-CA/serial.txt*
 /test-CA/index.txt*
+*/build
